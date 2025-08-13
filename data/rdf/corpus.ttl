@@ -1,0 +1,38 @@
+@prefix lom: <http://example.org/lom#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+lom:obj-11da1b9e3e8445c18727df5ed268e944 a lom:LearningObject ;
+    lom:educational_difficulty 9 ;
+    lom:general_title "Moby Dick" ;
+    lom:source "Projetct Gutenberg" ;
+    lom:text "A sudden wave struck the lifeboat, causing it to tip violently—this instability threw the sailor off balance, so he scrambled to the other side to steady it, which in turn shifted weight and allowed the craft to right itself." ;
+    lom:topic "Nature" .
+
+lom:obj-515e35f5e2ca4b26b0ce44cc996e0e0c a lom:LearningObject ;
+    lom:educational_difficulty 7 ;
+    lom:general_title "Pride and Prejudice" ;
+    lom:source "Projetct Gutenberg" ;
+    lom:text "Elizabeth heard that her sister had rejected a proposal hastily, and as a result she updated her opinion of him—realizing he was more judgmental than she initially thought shifted her feelings completely." ;
+    lom:topic "Social Relations" .
+
+lom:obj-9551bd8c33f24bcd81a3493fca80c416 a lom:LearningObject ;
+    lom:educational_difficulty 6 ;
+    lom:general_title "Little Women" ;
+    lom:source "Projetct Gutenberg" ;
+    lom:text "Jo's impulsive decision to enter the play caused a mishap: she burned her hair in the process, forcing her to face more scrutiny and reconsider the consequences of her whims." ;
+    lom:topic "Family & Growth" .
+
+lom:obj-ce86069841124af9b511900aefb17692 a lom:LearningObject ;
+    lom:educational_difficulty 5 ;
+    lom:general_title "Alice's Adventures in Wonderland" ;
+    lom:source "Projetct Gutenberg" ;
+    lom:text "Alice drank from a strange bottle labelled 'Drink Me,' which caused her to shrink dramatically—this miniaturization allowed her to slip under the door and continue her journey through Wonderland." ;
+    lom:topic "Fantasy" .
+
+lom:obj-fbb51961489a465583cc71aa1206d962 a lom:LearningObject ;
+    lom:educational_difficulty 8 ;
+    lom:general_title "Frankenstein" ;
+    lom:source "Projetct Gutenberg" ;
+    lom:text "When Victor stitched lifeless tissue onto a skeleton, the resulting creature stirred into life—a brilliant scientific triumph, but it triggered fear, horror, and a chain of tragic decisions that haunted Victor thereafter." ;
+    lom:topic "Science & Ethics" .
+

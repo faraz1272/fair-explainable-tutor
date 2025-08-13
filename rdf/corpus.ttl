@@ -1,0 +1,34 @@
+@prefix ex: <http://example.org/> .
+@prefix lom: <http://example.org/lom#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:p1 a lom:LearningObject ;
+    lom:educational_difficulty 7 ;
+    lom:general_title "A River Journey" ;
+    lom:text "The river bends and flows..." ;
+    lom:topic "Nature" .
+
+ex:p2 a lom:LearningObject ;
+    lom:educational_difficulty 7 ;
+    lom:general_title "Courage in Silence" ;
+    lom:text "She stood firm as the crowd hushed..." ;
+    lom:topic "Character" .
+
+ex:p3 a lom:LearningObject ;
+    lom:educational_difficulty 7 ;
+    lom:general_title "Turning Gears" ;
+    lom:text "Engines hummed as the city awoke..." ;
+    lom:topic "Technology" .
+
+ex:p4 a lom:LearningObject ;
+    lom:educational_difficulty 7 ;
+    lom:general_title "Seeds of Change" ;
+    lom:text "Planting ideas like seeds in spring..." ;
+    lom:topic "Society" .
+
+ex:p5 a lom:LearningObject ;
+    lom:educational_difficulty 7 ;
+    lom:general_title "Night Lanterns" ;
+    lom:text "Lanterns drifted above the lake..." ;
+    lom:topic "Tradition" .
+
