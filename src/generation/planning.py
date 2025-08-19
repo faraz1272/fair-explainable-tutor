@@ -5,8 +5,53 @@ from typing import List
 import os
 from openai import OpenAI
 from .utils import chat_generate
+import re
 
 # client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+# planning.py
+
+# planning.py
+import re
+
+def _normalize_clause(s: str) -> str:
+    # strip quotes/punctuation, collapse spaces
+    s = re.sub(r'[“”"\'`]+', '', s)
+    s = s.strip(" .,:;–—-")
+    # drop leading discourse markers
+    s = re.sub(r'^(and|but|so|then|thus|therefore|however)\b[:,\s-]*', '', s, flags=re.I)
+    # keep the main clause before heavy qualifiers
+    s = s.split(",", 1)[0]
+    s = re.split(r'\b(which|that|who)\b', s, maxsplit=1, flags=re.I)[0]
+    s = re.sub(r'\s+', ' ', s).strip()
+    # sentence case
+    if s:
+        s = s[0].upper() + s[1:]
+    return s
+
+def refine_pair_text(p: str) -> str:
+    if "->" not in p:
+        return p.strip()
+    L, R = [x.strip() for x in p.split("->", 1)]
+    L, R = _normalize_clause(L), _normalize_clause(R)
+    return f"{L} -> {R}"
+
+def is_good_pair(p: str) -> bool:
+    if "->" not in p:
+        return False
+    L, R = [x.strip(" '\"“”‘’.,;:-") for x in p.split("->", 1)]
+
+    # reject super-generic starts
+    bad_starts = ("there is nothing", "there’s nothing", "it is fascinating", "fascinating,")
+    if L.lower().startswith(bad_starts) or R.lower().startswith(bad_starts):
+        return False
+
+    # reasonable lengths
+    if not (3 <= len(L.split()) <= 16 and 3 <= len(R.split()) <= 16):
+        return False
+
+    # cues are a plus, not mandatory
+    return True
 
 def _normalize_text(t: str) -> str:
     # normalize punctuation that can break regexes
@@ -110,16 +155,33 @@ def tidy_pair(p: str) -> str:
         p = f"{l[:1].upper()+l[1:]} -> {r[:1].upper()+r[1:]}"
     return p.strip()
 
-def clean_pairs(pairs: List[str]) -> List[str]:
+def clean_pairs(pairs: list[str]) -> list[str]:
     out, seen = [], set()
     for p in pairs:
-        if not isinstance(p, str): continue
-        if any(ch in p for ch in ['{','}','"']): continue
+        if not isinstance(p, str):
+            continue
+        # normalize arrows and strip quotes/braces
         p = re.sub(r"[→⇒=>]", "->", p)
-        p = tidy_pair(p)
-        if "->" in p and p.lower() not in seen:
-            seen.add(p.lower()); out.append(p)
+        p = p.replace("{", "").replace("}", "")
+        p = re.sub(r'[“”"]', "", p)
+
+        p = p.strip()
+        if "->" not in p:
+            continue
+        L, R = [x.strip() for x in p.split("->", 1)]
+        if not L or not R:
+            continue
+
+        # normalize spacing/casing a touch
+        L = re.sub(r"\s+", " ", L)
+        R = re.sub(r"\s+", " ", R)
+        p = f"{L[:1].upper()+L[1:]} -> {R[:1].upper()+R[1:]}"
+        key = p.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
     return out[:5]
+
 
 # def plan_with_llm(chosen_items, model_id: str, backend) -> List[str]:
 #     ctx = "\n\n".join([f"Title: {x['title']}\nText:\n{x['text']}" for x in chosen_items])
@@ -160,31 +222,39 @@ def clean_pairs(pairs: List[str]) -> List[str]:
 
 #     return pairs
 
-def plan_with_llm(chosen_items, model_id: str, backend) -> List[str]:
+def plan_with_llm(chosen_items, model_id: str, backend) -> list[str]:
     ctx = "\n\n".join([f"Title: {x['title']}\nText:\n{x['text']}" for x in chosen_items])
     msgs = [
-        {"role":"system","content":"You are a precise teaching assistant."},
-        {"role":"user","content":(
-            "From ONLY the context passages below, extract up to 5 concise cause→effect pairs "
-            "in the form 'cause -> effect'.\n"
-            "Do not invent external details. Keep answers literal to the passage.\n"
-            "If JSON formatting fails, just output plain lines.\n\n"
-            f"Context:\n{ctx}"
+        {"role": "system", "content": "You are a precise teaching assistant."},
+        {"role": "user", "content": (
+            "From ONLY the context below, extract up to 5 concise cause→effect pairs in the form 'cause -> effect'. "
+            "Prefer short paraphrases over quotes. Do not invent external details.\n\n"
+            "Return EITHER:\n"
+            '1) JSON as {"pairs": ["<cause> -> <effect>", ...]}\n'
+            "OR\n"
+            "2) Plain lines, one per pair, each containing '->'.\n\n"
+            f"{ctx}"
         )}
     ]
-    raw = chat_generate(msgs, backend=backend, model_id=model_id,
-                        temperature=0.1, max_new_tokens=220)
+    raw = chat_generate(msgs, backend=backend, model_id=model_id, temperature=0.1, max_new_tokens=220)
+    print(">>> [plan raw sample]:", raw[:220].replace("\n"," ") + ("..." if len(raw) > 220 else ""))
 
-    # Try JSON first
+    # try JSON first
     pairs = []
     m = re.search(r'\{.*\}', raw, flags=re.S)
     if m:
-        try: pairs = json.loads(m.group(0)).get("pairs", [])
-        except: pass
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict):
+                pairs = obj.get("pairs", []) or obj.get("notes", []) or []
+        except Exception:
+            pairs = []
 
-    # If still empty, fallback to extracting "->" lines directly
+    # fallback: grab lines with '->'
     if not pairs:
-        pairs = [ln.strip() for ln in raw.splitlines() if "->" in ln]
+        lines = [ln.strip() for ln in raw.splitlines()]
+        pairs = [ln for ln in lines if "->" in ln and len(ln.split("->", 1)[0].strip()) > 0]
 
     return clean_pairs(pairs)
+
 

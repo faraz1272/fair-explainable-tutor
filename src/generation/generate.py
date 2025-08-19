@@ -1,10 +1,11 @@
 # src/generation/generate.py
 import argparse, re
 from .retrieval import query_passages, rerank_by_objective
-from .planning import extract_pairs_from_texts, clean_pairs, plan_with_llm, tidy_pair
+from .planning import extract_pairs_from_texts, clean_pairs, plan_with_llm, tidy_pair, is_good_pair, refine_pair_text
 from .writing import write_lesson, postprocess_lesson, strip_answers, build_write_prompt_with_context
 from .utils import chat_generate
 from .fairness import simple_fairness_scan
+from .fairness_ext import score_fairness, rewrite_to_reduce_issues
 import json, os, time
 
 import os
@@ -29,18 +30,32 @@ def generate(objective, topic, top_k=2, model_id="microsoft/Phi-3-mini-4k-instru
     pairs = extract_pairs_from_texts([x["text"] for x in chosen], max_pairs=5)
     pairs = [tidy_pair(p) for p in pairs]
 
-    if len(pairs) < 3:
-        print(">>> Heuristic <3; backing off to model planning...")
+    pairs = clean_pairs(pairs)
+    good = [p for p in pairs if is_good_pair(p)]
+
+    if len(good) < 2:
+        print(">>> Heuristic <2 good pairs; backing off to model planning...")
         llm_pairs = plan_with_llm(chosen, model_id, backend)
-        for p in llm_pairs:
-            if p.lower() not in [q.lower() for q in pairs]:
-                pairs.append(p)
+        pairs = clean_pairs(good + llm_pairs)
+    else:
+        pairs = good[:5]
+
+    pairs = [refine_pair_text(p) for p in pairs]
+    pairs = clean_pairs(pairs)[:5]
+
+    # if len(pairs) < 3:
+    #     print(">>> Heuristic <3; backing off to model planning...")
+    #     llm_pairs = plan_with_llm(chosen, model_id, backend)
+    #     for p in llm_pairs:
+    #         if p.lower() not in [q.lower() for q in pairs]:
+    #             pairs.append(p)
 
     print(">>> Pairs:", pairs if pairs else "[none]")
 
     print(">>> Writing lesson...")
     if pairs:
-        lesson, fairness = write_lesson(objective, pairs, model_id, backend)
+        # write_lesson returns (cleaned_lesson, fairness) — ignore its fairness, we’ll run the new scorer
+        lesson, _ = write_lesson(objective, pairs, model_id, backend)
     else:
         passage_text = chosen[0]["text"]
         msgs = [
@@ -63,9 +78,26 @@ def generate(objective, topic, top_k=2, model_id="microsoft/Phi-3-mini-4k-instru
         )
         lesson = postprocess_lesson(raw_lesson, default_q=f"Identify one example related to: {objective}")
         lesson = strip_answers(lesson)
-        fairness = simple_fairness_scan(lesson)
 
     print(">>> Write step complete.")
+
+    # === Fairness pass (new) ===
+    fairness = score_fairness(lesson)
+    if not fairness["passed"]:
+        print(">>> Fairness issues detected; attempting one rewrite...")
+        fixed = rewrite_to_reduce_issues(
+            text=lesson,
+            issues=fairness,
+            backend=backend,
+            model_id=model_id,
+            chat_generate=chat_generate
+        )
+        fixed = postprocess_lesson(fixed, default_q=f"Identify one example related to: {objective}")
+        fixed = strip_answers(fixed)
+        fairness2 = score_fairness(fixed)
+        if fairness2["passed"]:
+            lesson = fixed
+            fairness = fairness2
 
     os.makedirs("outputs", exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")

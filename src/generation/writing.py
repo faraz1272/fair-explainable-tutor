@@ -9,6 +9,24 @@ from src.generation.fairness import simple_fairness_scan
 from src.generation.utils import chat_generate
 from src.generation.fairness import simple_fairness_scan
 
+def pairs_to_questions(pairs):
+    qs, used = [], set()
+    for i, p in enumerate(pairs[:3], start=1):
+        if "->" in p:
+            cause, _ = [t.strip() for t in p.split("->", 1)]
+            # trim trailing punctuation/hyphens to avoid “...paper -”
+            cause = re.sub(r'\s*[-–—:]*\s*$', '', cause)
+            q = f"Q{i}: What effect follows from: {cause}?"
+        else:
+            q = f"Q{i}: Identify one cause and its effect from the lesson."
+        if q.lower() not in used:
+            used.add(q.lower()); qs.append(q)
+    while len(qs) < 3:
+        filler = f"Q{len(qs)+1}: Identify one cause and its effect from the lesson."
+        if filler.lower() not in used:
+            used.add(filler.lower()); qs.append(filler)
+    return qs[:3]
+
 def write_lesson(objective, pairs, model_id, backend):
     """
     Writes a lesson and 3 comprehension questions using the given pairs.
@@ -39,6 +57,24 @@ def write_lesson(objective, pairs, model_id, backend):
     )
 
     cleaned_lesson = postprocess_lesson(raw_lesson)
+
+    # overwrite Q1–Q3 with pair-derived questions
+    qs = pairs_to_questions(pairs)
+    lines = [ln for ln in cleaned_lesson.splitlines() if ln.strip()]
+    try:
+        li = lines.index("Lesson:")
+    except ValueError:
+        li = 0
+
+    body = []
+    for j in range(li+1, len(lines)):
+        if re.match(r'(?i)^q[1-9]:', lines[j]):
+            break
+        body.append(lines[j])
+
+    final_lines = lines[:li+1] + [" ".join(body).strip()] + qs
+    cleaned_lesson = "\n".join(final_lines)
+
     fairness = simple_fairness_scan(cleaned_lesson)
 
     return cleaned_lesson, fairness
@@ -77,6 +113,12 @@ def postprocess_lesson(lesson_text: str, default_q: str = "Identify one cause an
 
     lines = [ln for ln in text.splitlines() if ln.strip()]
 
+    # ✅ NEW: handle "Lesson: <inline text>" so the clamp finds a standalone header
+    if lines and lines[0].lower().startswith("lesson:"):
+        first = lines[0]
+        after = first.split(":", 1)[1].strip() if ":" in first else ""
+        lines = ["Lesson:"] + ([after] if after else []) + lines[1:]
+
     # If lesson starts directly with questions
     if lines and lines[0].lower().startswith("q1:"):
         qs = [ln for ln in lines if re.match(r'(?i)^q[1-9]:', ln)]
@@ -96,8 +138,7 @@ def postprocess_lesson(lesson_text: str, default_q: str = "Identify one cause an
         for ln in lines:
             if re.match(r'(?i)^q[1-9]:', ln):
                 if n < 3:
-                    kept.append(ln)
-                    n += 1
+                    kept.append(ln); n += 1
             else:
                 kept.append(ln)
         lines = kept
@@ -108,8 +149,7 @@ def postprocess_lesson(lesson_text: str, default_q: str = "Identify one cause an
         body, after = [], []
         for j in range(li + 1, len(lines)):
             if re.match(r'(?i)^q[1-9]:', lines[j]):
-                after = lines[j:]
-                break
+                after = lines[j:]; break
             body.append(lines[j])
         body = " ".join(body).strip()
         words = body.split()
@@ -118,26 +158,20 @@ def postprocess_lesson(lesson_text: str, default_q: str = "Identify one cause an
             keep, wc = [], 0
             for s in sents:
                 w = len(s.split())
-                if wc + w > 160:
-                    break
-                keep.append(s)
-                wc += w
+                if wc + w > 160: break
+                keep.append(s); wc += w
             body = " ".join(keep).rstrip(",;:") + "."
-        lines = lines[:li + 1] + [body] + (
-            after if after else [l for l in lines if re.match(r'(?i)^q[1-9]:', l)]
-        )
+        lines = lines[:li + 1] + [body] + (after if after else [l for l in lines if re.match(r'(?i)^q[1-9]:', l)])
     except ValueError:
         pass
 
-    # NEW: deduplicate repeated questions
-    seen = set()
-    deduped = []
+    # Deduplicate repeated questions
+    seen, deduped = set(), []
     for ln in lines:
         if re.match(r'(?i)^q[1-9]:', ln):
             norm = ln.lower().strip()
             if norm not in seen:
-                seen.add(norm)
-                deduped.append(ln)
+                seen.add(norm); deduped.append(ln)
         else:
             deduped.append(ln)
     lines = deduped
