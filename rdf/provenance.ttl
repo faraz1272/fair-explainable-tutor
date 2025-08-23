@@ -1,0 +1,77 @@
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://example.org/entity/outputs/run-20250821-145451.json> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250821-145451> .
+
+<https://example.org/entity/outputs/run-20250821-145451.txt> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250821-145451> .
+
+<https://example.org/entity/outputs/run-20250821-162909.json> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250821-162909> .
+
+<https://example.org/entity/outputs/run-20250821-162909.txt> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250821-162909> .
+
+<https://example.org/entity/outputs/run-20250821-164146.json> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250821-164146> .
+
+<https://example.org/entity/outputs/run-20250821-164146.txt> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250821-164146> .
+
+<https://example.org/entity/outputs/run-20250822-101501.json> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250822-101501> .
+
+<https://example.org/entity/outputs/run-20250822-101501.txt> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250822-101501> .
+
+<https://example.org/entity/outputs/run-20250822-131107.json> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250822-131107> .
+
+<https://example.org/entity/outputs/run-20250822-131107.txt> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250822-131107> .
+
+<https://example.org/activity/run-20250821-145451> a prov:Activity ;
+    dct:creator <https://example.org/agent/author> ;
+    prov:endedAtTime "2025-08-21T13:54:51.810621+00:00"^^xsd:dateTime ;
+    prov:startedAtTime "2025-08-21T13:54:51.810617+00:00"^^xsd:dateTime ;
+    prov:used <https://example.org/entity//Users/farazahmed/Documents/GitHub/fair-explainable-tutor/src/generation/generate.py>,
+        <https://example.org/entity/data/rdf/corpus.ttl> .
+
+<https://example.org/activity/run-20250821-162909> a prov:Activity ;
+    dct:creator <https://example.org/agent/author> ;
+    prov:endedAtTime "2025-08-21T15:29:09.672155+00:00"^^xsd:dateTime ;
+    prov:startedAtTime "2025-08-21T15:29:09.672152+00:00"^^xsd:dateTime ;
+    prov:used <https://example.org/entity//Users/farazahmed/Documents/GitHub/fair-explainable-tutor/src/generation/generate.py>,
+        <https://example.org/entity/data/rdf/corpus.ttl> .
+
+<https://example.org/activity/run-20250821-164146> a prov:Activity ;
+    dct:creator <https://example.org/agent/author> ;
+    prov:endedAtTime "2025-08-21T15:41:46.999093+00:00"^^xsd:dateTime ;
+    prov:startedAtTime "2025-08-21T15:41:46.998923+00:00"^^xsd:dateTime ;
+    prov:used <https://example.org/entity//Users/farazahmed/Documents/GitHub/fair-explainable-tutor/src/generation/generate.py>,
+        <https://example.org/entity/data/rdf/corpus.ttl> .
+
+<https://example.org/activity/run-20250822-101501> a prov:Activity ;
+    dct:creator <https://example.org/agent/author> ;
+    prov:endedAtTime "2025-08-22T09:15:01.059177+00:00"^^xsd:dateTime ;
+    prov:startedAtTime "2025-08-22T09:15:01.059174+00:00"^^xsd:dateTime ;
+    prov:used <https://example.org/entity//Users/farazahmed/Documents/GitHub/fair-explainable-tutor/src/generation/generate.py>,
+        <https://example.org/entity/data/rdf/corpus.ttl> .
+
+<https://example.org/activity/run-20250822-131107> a prov:Activity ;
+    dct:creator <https://example.org/agent/author> ;
+    prov:endedAtTime "2025-08-22T12:11:07.505404+00:00"^^xsd:dateTime ;
+    prov:startedAtTime "2025-08-22T12:11:07.505388+00:00"^^xsd:dateTime ;
+    prov:used <https://example.org/entity//Users/farazahmed/Documents/GitHub/fair-explainable-tutor/src/generation/generate.py>,
+        <https://example.org/entity/data/rdf/corpus.ttl> .
+
+<https://example.org/agent/author> a prov:Agent ;
+    foaf:name "Faraz Ahmed" .
+
+<https://example.org/entity//Users/farazahmed/Documents/GitHub/fair-explainable-tutor/src/generation/generate.py> a prov:Entity .
+
+<https://example.org/entity/data/rdf/corpus.ttl> a prov:Entity .
+

@@ -1,0 +1,4 @@
+topic,objective,backend,model_id,chosen_titles,num_chosen,lesson_words,questions_count,fairness_passed,toxicity_score,readability_fk_grade,run_json,run_txt
+Nature,Teach cause and effect in short stories,huggingface,microsoft/Phi-3-mini-4k-instruct,The Open Boat (chunk 5); The Open Boat (chunk 8),2,233,3,True,0.00036238098982721567,23.0,outputs/run-20250820-132022.json,outputs/run-20250820-132022.txt
+Society,Teach cause and effect in short stories,huggingface,microsoft/Phi-3-mini-4k-instruct,The Yellow Wallpaper (chunk 20); The Yellow Wallpaper (chunk 33),2,216,3,True,0.003873602021485567,31.2,outputs/run-20250820-133724.json,outputs/run-20250820-133724.txt
+Ethics,Teach cause and effect in short stories,huggingface,microsoft/Phi-3-mini-4k-instruct,The Happy Prince (chunk 1); The Happy Prince (chunk 16),2,225,3,True,0.0006924232002347708,23.0,outputs/run-20250820-135530.json,outputs/run-20250820-135530.txt
