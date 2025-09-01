@@ -33,6 +33,12 @@
 <https://example.org/entity/outputs/run-20250822-131107.txt> a prov:Entity ;
     prov:wasGeneratedBy <https://example.org/activity/run-20250822-131107> .
 
+<https://example.org/entity/outputs/run-20250828-143723.json> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250828-143723> .
+
+<https://example.org/entity/outputs/run-20250828-143723.txt> a prov:Entity ;
+    prov:wasGeneratedBy <https://example.org/activity/run-20250828-143723> .
+
 <https://example.org/activity/run-20250821-145451> a prov:Activity ;
     dct:creator <https://example.org/agent/author> ;
     prov:endedAtTime "2025-08-21T13:54:51.810621+00:00"^^xsd:dateTime ;
@@ -65,6 +71,13 @@
     dct:creator <https://example.org/agent/author> ;
     prov:endedAtTime "2025-08-22T12:11:07.505404+00:00"^^xsd:dateTime ;
     prov:startedAtTime "2025-08-22T12:11:07.505388+00:00"^^xsd:dateTime ;
+    prov:used <https://example.org/entity//Users/farazahmed/Documents/GitHub/fair-explainable-tutor/src/generation/generate.py>,
+        <https://example.org/entity/data/rdf/corpus.ttl> .
+
+<https://example.org/activity/run-20250828-143723> a prov:Activity ;
+    dct:creator <https://example.org/agent/author> ;
+    prov:endedAtTime "2025-08-28T13:37:23.081185+00:00"^^xsd:dateTime ;
+    prov:startedAtTime "2025-08-28T13:37:23.081170+00:00"^^xsd:dateTime ;
     prov:used <https://example.org/entity//Users/farazahmed/Documents/GitHub/fair-explainable-tutor/src/generation/generate.py>,
         <https://example.org/entity/data/rdf/corpus.ttl> .
 
