@@ -1,12 +1,13 @@
-name: Deploy to Elastic Beanstalk
+name: CI/CD — ECR + Elastic Beanstalk
+
 on:
   push:
     branches: [ main ]
     paths:
       - 'Dockerfile'
       - 'requirements.txt'
+      - 'app.py'
       - 'src/**'
-      - '**.py'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
@@ -15,63 +16,135 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  # 1) Build locally and smoke-test (Streamlit on 8080)
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build local image
+        run: |
+          docker build -t fair-tutor:${{ github.sha }} .
+
+      - name: Run container (8080)
+        run: |
+          docker run -d --name app -p 8080:8080 fair-tutor:${{ github.sha }}
+          # Wait for Streamlit to come up
+          for i in {1..20}; do
+            sleep 3
+            if curl -sf http://localhost:8080/ >/dev/null; then
+              echo "App responded OK"
+              exit 0
+            fi
+            echo "Waiting for app..."
+          done
+          echo "App failed to respond in time" >&2
+          docker logs app || true
+          exit 1
+
+      - name: Show container logs (always)
+        if: always()
+        run: docker logs app || true
+
+      - name: Stop container (always)
+        if: always()
+        run: docker stop app || true
+
+  # 2) Build & push image to ECR (linux/amd64)
+  build-and-push-ecr:
+    needs: smoke-test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     env:
-      IMAGE_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
-      EB_APP_NAME: ${{ secrets.EB_APP_NAME }}
-      EB_ENV_NAME: ${{ secrets.EB_ENV_NAME }}
-      EB_S3_BUCKET: ${{ secrets.EB_S3_BUCKET }}
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-    
+      AWS_REGION: ${{ secrets.AWS_REGION }}           # e.g., eu-west-2
+      ECR_REPO: ${{ secrets.ECR_REPOSITORY }}         # e.g., fair-explainable-tutor
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: gh-${{ github.run_id }}
-      
-      - name: Verify AWS identity
-        run: aws sts get-caller-identity
-      
-      - name: Log in to Amazon ECR
+
+      - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
+      - name: Build & Push (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
+
+  # 3) Create a unique EB application version and deploy
+  deploy-eb:
+    needs: build-and-push-ecr
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}           # e.g., eu-west-2
+      EB_APP: ${{ secrets.EB_APP_NAME }}              # your EB application name
+      EB_ENV: ${{ secrets.EB_ENV_NAME }}              # your EB environment name
+      EB_BUCKET: ${{ secrets.EB_S3_BUCKET }}          # your EB S3 bucket (elasticbeanstalk-<region>-<acct>)
+      ECR_REPO: ${{ secrets.ECR_REPOSITORY }}         # e.g., fair-explainable-tutor
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Compute unique version label
         run: |
-          # Use a combination of run number, timestamp, and short SHA for guaranteed uniqueness
-          SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-8)
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          UNIQUE_LABEL="v${GITHUB_RUN_NUMBER}-${TIMESTAMP}-${SHORT_SHA}"
-          echo "UNIQUE_LABEL=${UNIQUE_LABEL}" >> $GITHUB_ENV
-          echo "IMAGE_TAG=v${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
-          echo "Using EB version label: ${UNIQUE_LABEL}"
-      
-      - name: Build & Push Docker image (linux/amd64)
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)
+          TS=$(date -u +%Y%m%d%H%M%S)
+          echo "VERLABEL=v-${GITHUB_RUN_NUMBER}-${TS}-${SHORT_SHA}" >> $GITHUB_ENV
+          echo "Computed VERLABEL=${VERLABEL}"
+
+      - name: Create Dockerrun.aws.json (port 8080, :latest)
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -t "${IMAGE_URI}:latest" \
-            -t "${IMAGE_URI}:${IMAGE_TAG}" \
-            --push .
-      
-      - name: Create Dockerrun.aws.json
-        run: |
-          cat > Dockerrun.aws.json <<'JSON'
+          aws ecr get-login-password --region "${AWS_REGION}" >/dev/null
+          # The registry is account.dkr.ecr.region.amazonaws.com
+          REGISTRY="${{ github.repository_owner }}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          # But safer to read from EB env bucket? We already logged into ECR in prior job; here we craft directly:
+          # If you prefer exact registry from account id, set it as a secret. Otherwise infer from EB bucket/account if needed.
+          # Since the image name in EB only needs "<registry>/<repo>:latest", we can leverage the same format you used manually:
+          # If you want to hardcode, replace REGISTRY line with: REGISTRY="864624564382.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          # If you prefer to hardcode registry, uncomment the next line and set your account id:
+          # REGISTRY="864624564382.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          # If you want to avoid inference, set a secret ECR_REGISTRY and use it:
+          # REGISTRY="${{ secrets.ECR_REGISTRY }}"
+
+          # For safety, default to secrets.ECR_REGISTRY if provided:
+          if [ -n "${{ secrets.ECR_REGISTRY }}" ]; then REGISTRY="${{ secrets.ECR_REGISTRY }}"; fi
+
+          cat > Dockerrun.aws.json <<JSON
           {
             "AWSEBDockerrunVersion": "1",
             "Image": {
-              "Name": "${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest",
+              "Name": "${REGISTRY}/${{ env.ECR_REPO }}:latest",
               "Update": "true"
             },
             "Ports": [
@@ -80,127 +153,28 @@ jobs:
             "Logging": "/var/log/nginx"
           }
           JSON
-      
-      - name: Zip Dockerrun
+          cat Dockerrun.aws.json
+
+      - name: Package bundle
         run: |
-          zip -r "deploy-${UNIQUE_LABEL}.zip" Dockerrun.aws.json
-      
+          zip -j "beanstalk-bundle-${VERLABEL}.zip" Dockerrun.aws.json
+
       - name: Upload bundle to S3
         run: |
-          BUNDLE_KEY="ci/${GITHUB_REPOSITORY#*/}/deploy-${UNIQUE_LABEL}.zip"
-          aws s3 cp "deploy-${UNIQUE_LABEL}.zip" "s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
-          echo "BUNDLE_KEY=${BUNDLE_KEY}" >> $GITHUB_ENV
-          echo "Uploaded bundle to s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
-      
-      - name: Debug - Check existing versions and problem version
+          KEY="ci/fair-tutor/beanstalk-bundle-${VERLABEL}.zip"
+          aws s3 cp "beanstalk-bundle-${VERLABEL}.zip" "s3://${EB_BUCKET}/${KEY}"
+          echo "BUNDLE_KEY=${KEY}" >> $GITHUB_ENV
+          echo "Uploaded to s3://${EB_BUCKET}/${KEY}"
+
+      - name: Create EB application version (unique every run)
         run: |
-          echo "=== Checking for the problematic version ==="
-          aws elasticbeanstalk describe-application-versions \
-            --application-name "${EB_APP_NAME}" \
-            --version-labels "ec717307a6b352f1a3cd1c762e775d02884db77d" \
-            --query 'ApplicationVersions[0]' \
-            --output json || echo "Version not found"
-          
-          echo ""
-          echo "=== Last 5 application versions ==="
-          aws elasticbeanstalk describe-application-versions \
-            --application-name "${EB_APP_NAME}" \
-            --max-records 5 \
-            --query 'ApplicationVersions[*].[VersionLabel,DateCreated,SourceBundle.S3Key]' \
-            --output table
-          
-          echo ""
-          echo "=== Environment Variables Debug ==="
-          echo "EB_APP_NAME: ${EB_APP_NAME}"
-          echo "UNIQUE_LABEL: ${UNIQUE_LABEL}"
-          echo "BUNDLE_KEY: ${BUNDLE_KEY}"
-          echo "EB_S3_BUCKET: ${EB_S3_BUCKET}"
-      
-      - name: Delete problematic version if it exists
-        run: |
-          # Try to delete the specific problematic version
-          echo "Attempting to delete version: ec717307a6b352f1a3cd1c762e775d02884db77d"
-          aws elasticbeanstalk delete-application-version \
-            --application-name "${EB_APP_NAME}" \
-            --version-label "ec717307a6b352f1a3cd1c762e775d02884db77d" \
-            --delete-source-bundle 2>/dev/null || echo "Version doesn't exist or couldn't be deleted"
-          
-          # Also try to delete our intended version label just in case
-          echo "Attempting to delete version: ${UNIQUE_LABEL}"
-          aws elasticbeanstalk delete-application-version \
-            --application-name "${EB_APP_NAME}" \
-            --version-label "${UNIQUE_LABEL}" \
-            --delete-source-bundle 2>/dev/null || echo "Version doesn't exist or couldn't be deleted"
-          
-          # Wait a moment for deletion to process
-          sleep 3
-      
-      - name: Create EB Application Version (with explicit parameters)
-        run: |
-          set -e
-          
-          echo "=== Creating EB application version ==="
-          echo "Application: ${EB_APP_NAME}"
-          echo "Version Label: ${UNIQUE_LABEL}"
-          echo "S3 Bucket: ${EB_S3_BUCKET}"
-          echo "S3 Key: ${BUNDLE_KEY}"
-          
-          # Method 1: Try with explicit JSON input
-          cat > create-version.json <<EOF
-          {
-            "ApplicationName": "${EB_APP_NAME}",
-            "VersionLabel": "${UNIQUE_LABEL}",
-            "SourceBundle": {
-              "S3Bucket": "${EB_S3_BUCKET}",
-              "S3Key": "${BUNDLE_KEY}"
-            }
-          }
-          EOF
-          
-          echo "=== JSON input file contents ==="
-          cat create-version.json
-          
-          # Try creating with CLI input JSON
           aws elasticbeanstalk create-application-version \
-            --cli-input-json file://create-version.json
-          
-          echo "Successfully created application version: ${UNIQUE_LABEL}"
-      
-      - name: Update EB Environment
+            --application-name "${EB_APP}" \
+            --version-label "${VERLABEL}" \
+            --source-bundle S3Bucket="${EB_BUCKET}",S3Key="${BUNDLE_KEY}"
+
+      - name: Deploy to EB environment
         run: |
-          echo "Updating environment ${EB_ENV_NAME} to version ${UNIQUE_LABEL}"
-          
           aws elasticbeanstalk update-environment \
-            --environment-name "${EB_ENV_NAME}" \
-            --version-label "${UNIQUE_LABEL}"
-          
-          echo "Environment update initiated for version: ${UNIQUE_LABEL}"
-      
-      - name: Wait for Environment Update
-        run: |
-          echo "Waiting for environment to be ready..."
-          
-          # Wait for up to 10 minutes
-          COUNTER=0
-          while [ $COUNTER -lt 60 ]; do
-            STATUS=$(aws elasticbeanstalk describe-environments \
-              --environment-names "${EB_ENV_NAME}" \
-              --query 'Environments[0].Status' \
-              --output text)
-            
-            echo "Environment status: $STATUS"
-            
-            if [ "$STATUS" = "Ready" ]; then
-              echo "Environment is ready!"
-              break
-            fi
-            
-            sleep 10
-            COUNTER=$((COUNTER + 1))
-          done
-          
-          # Get final environment status
-          aws elasticbeanstalk describe-environments \
-            --environment-names "${EB_ENV_NAME}" \
-            --query 'Environments[0].[Status,Health,VersionLabel]' \
-            --output table
+            --environment-name "${EB_ENV}" \
+            --version-label "${VERLABEL}"
