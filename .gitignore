@@ -6,3 +6,4 @@ data_raw/
 outputs/
 reports/
 .DS_Store
+fair-tutor-ecr-push_accessKeys.csv
