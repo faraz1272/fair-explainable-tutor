@@ -194,22 +194,26 @@ def postprocess_lesson(
 ) -> str:
     """Clean raw model output and guarantee exactly 3 DISTINCT questions.
 
-    The function *normalizes* the section order, *dedupes* repeated sentences,
-    *clamps* lesson length, and *repairs* or *fills* questions.
+    The function normalizes the section order, dedupes repeated sentences,
+    clamps lesson length, and repairs or fills questions. It also removes
+    duplicate 'Lesson:' headers and strips inline Q1/Q2/Q3 appended to the body.
     """
+    import re
+    from typing import List
+
     text = (lesson_text or "").strip()
 
-    # *normalizing* starting point at 'Lesson:'
+    # --- Normalize starting point at 'Lesson:' (keep first occurrence only) ---
     if "Lesson:" in text:
-        text = text[text.index("Lesson:") :]
-    # *dropping* common hallucinated headings
+        text = text[text.index("Lesson:"):]
+    # Drop common hallucinated headings
     text = re.sub(
         r"(?im)^\s*(lecture|objective|duration|materials|introduction|procedure)\s*:.*\n",
         "",
         text,
     )
 
-    # *deduping* consecutive identical sentences
+    # --- Deduplicate consecutive identical sentences (simple adjacent de-dupe) ---
     sents = re.split(r"(?<=[.!?])\s+", text)
     cleaned: List[str] = []
     for s in sents:
@@ -217,24 +221,44 @@ def postprocess_lesson(
             cleaned.append(s.strip())
     text = " ".join(cleaned)
 
-    # *splitting* into non-empty lines
+    # --- Split into lines (non-empty) ---
     lines = [ln for ln in text.splitlines() if ln.strip()]
 
-    # *moving* questions under Lesson when output starts with Q1
+    # --- Move questions under Lesson if output starts with Q1 ---
     if lines and lines[0].lower().startswith("q1:"):
         qs = [ln for ln in lines if re.match(r"(?i)^q[1-9]:", ln)]
         body = "\n".join([ln for ln in lines if ln not in qs])
         text = f"Lesson:\n{body.strip()}\n" + "\n".join(qs)
         lines = [ln for ln in text.splitlines() if ln.strip()]
 
-    # *locating* the lesson block and any existing Qs
+    # --- Collapse duplicate 'Lesson:' headers but preserve their content ---
+    pruned: List[str] = []
+    seen_lesson = False
+    for ln in lines:
+        m = re.match(r"(?i)^\s*lesson\s*:\s*(.*)$", ln)
+        if m:
+            remainder = m.group(1).strip()
+            if not seen_lesson:
+                pruned.append("Lesson:")
+                if remainder:
+                    pruned.append(remainder)
+                seen_lesson = True
+            else:
+                # For later Lesson: lines, drop the header but keep the text
+                if remainder:
+                    pruned.append(remainder)
+            continue
+        pruned.append(ln)
+    lines = pruned
+
+    # --- Locate the Lesson block; inject header if missing ---
     try:
         li = lines.index("Lesson:")
     except ValueError:
         lines = ["Lesson:"] + lines
         li = 0
 
-    # *separating* body and questions
+    # --- Separate body and explicit question lines (Q1:/Q2:/Q3:) ---
     body_parts: List[str] = []
     question_lines: List[str] = []
     for j in range(li + 1, len(lines)):
@@ -243,9 +267,12 @@ def postprocess_lesson(
             break
         body_parts.append(lines[j])
 
+    # --- Build body text and remove any inline questions appended to it ---
     body = " ".join(body_parts).strip()
+    # Cut everything from the first inline Qn: onward (handles "… . Q1: … Q2: …")
+    body = re.split(r"(?i)\bQ[1-9]\s*:", body)[0].strip()
 
-    # *clamping* lesson body to ~160 words while preserving sentence boundaries
+    # --- Clamp lesson body to ~160 words while preserving sentence boundaries ---
     words = body.split()
     if len(words) > 175:
         sents = re.split(r"(?<=[.!?])\s+", body)
@@ -259,7 +286,7 @@ def postprocess_lesson(
             wc += w
         body = " ".join(keep).rstrip(",;:") + "."
 
-    # *extracting* existing Qs (and *stripping* any inline answers)
+    # --- Extract existing Qs (strip any inline 'Answer' fragments; normalize punctuation) ---
     raw_qs: List[str] = []
     for ln in question_lines:
         if re.match(r"(?i)^q[1-9]:", ln):
@@ -268,14 +295,14 @@ def postprocess_lesson(
                 ln = ln.rstrip().rstrip(".") + "?"
             raw_qs.append(ln)
 
-    # *building* a diverse question set
+    # --- Build a diverse question set from existing + templates ---
     templates = [
         "Identify one cause and its effect from the lesson.",
         "Explain how one action led to a result in the lesson.",
         "Find one example of a cause that produced an effect, and name both parts.",
     ]
 
-    # *normalizing* and *deduping* existing questions
+    # Normalize and dedupe existing questions (by content, ignoring 'Qn:' labels)
     seen: set[str] = set()
     uniq_qs: List[str] = []
     for q in raw_qs:
@@ -285,7 +312,7 @@ def postprocess_lesson(
             seen.add(nq)
             uniq_qs.append(q)
 
-    # *filling* to ensure exactly 3 distinct questions
+    # Fill to ensure exactly 3 distinct questions
     def make_q(n: int, txt: str) -> str:
         return f"Q{n}: {txt.rstrip('?')}?"
 
@@ -298,12 +325,12 @@ def postprocess_lesson(
             seen.add(key)
         idx += 1
 
-    # *padding* if still short (rare)
-    alt = "Describe a cause–effect link you noticed in the lesson."
+    # Pad if still short (rare)
+    alt = "Describe a cause and effect you noticed in the lesson."
     while len(uniq_qs) < 3:
         uniq_qs.append(make_q(len(uniq_qs) + 1, alt if len(uniq_qs) == 2 else default_q))
 
-    # *renumbering* Q1/Q2/Q3 and *ensuring* distinctness by value (last pass)
+    # Renumber Q1/Q2/Q3 and ensure distinctness by value (last pass)
     final_qs: List[str] = []
     seen2: set[str] = set()
     for i, q in enumerate(uniq_qs[:3], start=1):
@@ -319,7 +346,7 @@ def postprocess_lesson(
         seen2.add(key2)
         final_qs.append(make_q(i, qtxt))
 
-    # *rebuilding* full text
+    # --- Rebuild final text with a single 'Lesson:' header ---
     out_lines = ["Lesson:", body] + final_qs
     return "\n".join([ln for ln in out_lines if ln.strip()])
 
