@@ -1,5 +1,4 @@
 name: Deploy to Elastic Beanstalk
-
 on:
   push:
     branches: [ main ]
@@ -27,40 +26,45 @@ jobs:
       EB_ENV_NAME: ${{ secrets.EB_ENV_NAME }}
       EB_S3_BUCKET: ${{ secrets.EB_S3_BUCKET }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+      
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: gh-${{ github.run_id }}
-
+      
       - name: Verify AWS identity
         run: aws sts get-caller-identity
-
+      
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
-
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
+      
       - name: Compute unique version label
         run: |
-          echo "LABEL=v${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
-          echo "Using EB version label: v${GITHUB_RUN_NUMBER}"
-
+          # Use a combination of run number, timestamp, and short SHA for guaranteed uniqueness
+          SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-8)
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          UNIQUE_LABEL="v${GITHUB_RUN_NUMBER}-${TIMESTAMP}-${SHORT_SHA}"
+          echo "UNIQUE_LABEL=${UNIQUE_LABEL}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=v${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "Using EB version label: ${UNIQUE_LABEL}"
+      
       - name: Build & Push Docker image (linux/amd64)
         run: |
           docker buildx build \
             --platform linux/amd64 \
             -t "${IMAGE_URI}:latest" \
-            -t "${IMAGE_URI}:${LABEL}" \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
             --push .
-
+      
       - name: Create Dockerrun.aws.json
         run: |
           cat > Dockerrun.aws.json <<'JSON'
@@ -76,47 +80,71 @@ jobs:
             "Logging": "/var/log/nginx"
           }
           JSON
-
+      
       - name: Zip Dockerrun
-        run: zip -r "deploy-${LABEL}.zip" Dockerrun.aws.json
-
+        run: |
+          zip -r "deploy-${UNIQUE_LABEL}.zip" Dockerrun.aws.json
+      
       - name: Upload bundle to S3
         run: |
-          BUNDLE_KEY="ci/${GITHUB_REPOSITORY#*/}/deploy-${LABEL}.zip"
-          aws s3 cp "deploy-${LABEL}.zip" "s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
+          BUNDLE_KEY="ci/${GITHUB_REPOSITORY#*/}/deploy-${UNIQUE_LABEL}.zip"
+          aws s3 cp "deploy-${UNIQUE_LABEL}.zip" "s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
           echo "BUNDLE_KEY=${BUNDLE_KEY}" >> $GITHUB_ENV
-
+          echo "Uploaded bundle to s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
+      
       - name: Create EB Application Version
         run: |
           set -e
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
-
-          UNIQUE_LABEL="${LABEL}-${TIMESTAMP}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
-          echo "UNIQUE_LABEL=${UNIQUE_LABEL}" >> $GITHUB_ENV
           
+          # Debug output
+          echo "Creating EB application version:"
+          echo "  Application: ${EB_APP_NAME}"
+          echo "  Version Label: ${UNIQUE_LABEL}"
+          echo "  S3 Bucket: ${EB_S3_BUCKET}"
+          echo "  S3 Key: ${BUNDLE_KEY}"
+          
+          # Check if version already exists and delete if necessary
           if aws elasticbeanstalk describe-application-versions \
               --application-name "${EB_APP_NAME}" \
               --version-labels "${UNIQUE_LABEL}" \
               --query 'ApplicationVersions[0].VersionLabel' \
               --output text 2>/dev/null | grep -q "${UNIQUE_LABEL}"; then
-            echo "Warning: Version ${UNIQUE_LABEL} already exists, appending random suffix"
-            UNIQUE_LABEL="${UNIQUE_LABEL}-$(openssl rand -hex 4)"
-            echo "UNIQUE_LABEL=${UNIQUE_LABEL}" >> $GITHUB_ENV
+            echo "Warning: Version ${UNIQUE_LABEL} already exists, deleting it first..."
+            aws elasticbeanstalk delete-application-version \
+              --application-name "${EB_APP_NAME}" \
+              --version-label "${UNIQUE_LABEL}" \
+              --delete-source-bundle || true
+            sleep 2
           fi
           
+          # Create the application version
           aws elasticbeanstalk create-application-version \
             --application-name "${EB_APP_NAME}" \
             --version-label "${UNIQUE_LABEL}" \
             --source-bundle "S3Bucket=${EB_S3_BUCKET},S3Key=${BUNDLE_KEY}"
           
+          echo "Successfully created application version: ${UNIQUE_LABEL}"
+      
       - name: Update EB Environment
         run: |
+          echo "Updating environment ${EB_ENV_NAME} to version ${UNIQUE_LABEL}"
+          
           aws elasticbeanstalk update-environment \
             --environment-name "${EB_ENV_NAME}" \
             --version-label "${UNIQUE_LABEL}"
-
-      - name: Update EB Environment
+          
+          echo "Environment update initiated for version: ${UNIQUE_LABEL}"
+      
+      - name: Wait for Environment Update
         run: |
-          aws elasticbeanstalk update-environment \
+          echo "Waiting for environment to be ready..."
+          aws elasticbeanstalk wait environment-updated \
             --environment-name "${EB_ENV_NAME}" \
-            --version-label "${LABEL}"
+            --version-label "${UNIQUE_LABEL}" \
+            || true
+          
+          # Get final environment status
+          aws elasticbeanstalk describe-environments \
+            --environment-names "${EB_ENV_NAME}" \
+            --query 'Environments[0].[Status,Health,VersionLabel]' \
+            --output table
