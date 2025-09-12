@@ -1,0 +1,95 @@
+name: Deploy to Elastic Beanstalk
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - '**.py'
+      - 'app.py'
+      - 'src/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
+      EB_APP_NAME: ${{ secrets.EB_APP_NAME }}
+      EB_ENV_NAME: ${{ secrets.EB_ENV_NAME }}
+      EB_S3_BUCKET: ${{ secrets.EB_S3_BUCKET }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+
+    steps:
+      - name: Checkout
+      # v4 works with GH Actions today; keep it up-to-date as needed
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build for amd64 (Beanstalk EC2 is x86_64)
+      - name: Build & Push Docker image (linux/amd64)
+        run: |
+          GIT_SHA=${GITHUB_SHA::12}
+          docker buildx build \
+            --platform linux/amd64 \
+            -t "${IMAGE_URI}:latest" \
+            -t "${IMAGE_URI}:${GIT_SHA}" \
+            --push .
+
+      # Create a minimal Dockerrun that points to :latest (Beanstalk will pull the new image)
+      - name: Create Dockerrun.aws.json
+        run: |
+          cat > Dockerrun.aws.json <<'JSON'
+          {
+            "AWSEBDockerrunVersion": "1",
+            "Image": {
+              "Name": "${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest",
+              "Update": "true"
+            },
+            "Ports": [
+              { "ContainerPort": "8080" }
+            ],
+            "Logging": "/var/log/nginx"
+          }
+          JSON
+
+      - name: Zip Dockerrun
+        run: |
+          zip -r deploy-${GITHUB_SHA}.zip Dockerrun.aws.json
+
+      - name: Upload bundle to S3
+        run: |
+          BUNDLE_KEY="ci/${GITHUB_REPOSITORY#*/}/deploy-${GITHUB_SHA}.zip"
+          aws s3 cp "deploy-${GITHUB_SHA}.zip" "s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
+          echo "BUNDLE_KEY=${BUNDLE_KEY}" >> $GITHUB_ENV
+
+      - name: Create EB Application Version
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name "${EB_APP_NAME}" \
+            --version-label "${GITHUB_SHA}" \
+            --source-bundle S3Bucket="${EB_S3_BUCKET}",S3Key="${BUNDLE_KEY}"
+
+      - name: Update EB Environment
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name "${EB_ENV_NAME}" \
+            --version-label "${GITHUB_SHA}"
