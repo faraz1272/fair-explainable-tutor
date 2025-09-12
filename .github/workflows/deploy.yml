@@ -19,6 +19,9 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     env:
       IMAGE_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
       EB_APP_NAME: ${{ secrets.EB_APP_NAME }}
@@ -31,12 +34,15 @@ jobs:
       # v4 works with GH Actions today; keep it up-to-date as needed
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gh-${{ github.run_id }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
