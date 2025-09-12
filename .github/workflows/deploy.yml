@@ -6,9 +6,8 @@ on:
     paths:
       - 'Dockerfile'
       - 'requirements.txt'
-      - '**.py'
-      - 'app.py'
       - 'src/**'
+      - '**.py'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
@@ -31,7 +30,6 @@ jobs:
 
     steps:
       - name: Checkout
-      # v4 works with GH Actions today; keep it up-to-date as needed
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
@@ -50,17 +48,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Build for amd64 (Beanstalk EC2 is x86_64)
+      - name: Compute unique version label
+        run: |
+          echo "LABEL=v${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "Using EB version label: v${GITHUB_RUN_NUMBER}"
+
       - name: Build & Push Docker image (linux/amd64)
         run: |
-          GIT_SHA=${GITHUB_SHA::12}
           docker buildx build \
             --platform linux/amd64 \
             -t "${IMAGE_URI}:latest" \
-            -t "${IMAGE_URI}:${GIT_SHA}" \
+            -t "${IMAGE_URI}:${LABEL}" \
             --push .
 
-      # Create a minimal Dockerrun that points to :latest (Beanstalk will pull the new image)
       - name: Create Dockerrun.aws.json
         run: |
           cat > Dockerrun.aws.json <<'JSON'
@@ -78,24 +78,45 @@ jobs:
           JSON
 
       - name: Zip Dockerrun
-        run: |
-          zip -r deploy-${GITHUB_SHA}.zip Dockerrun.aws.json
+        run: zip -r "deploy-${LABEL}.zip" Dockerrun.aws.json
 
       - name: Upload bundle to S3
         run: |
-          BUNDLE_KEY="ci/${GITHUB_REPOSITORY#*/}/deploy-${GITHUB_SHA}.zip"
-          aws s3 cp "deploy-${GITHUB_SHA}.zip" "s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
+          BUNDLE_KEY="ci/${GITHUB_REPOSITORY#*/}/deploy-${LABEL}.zip"
+          aws s3 cp "deploy-${LABEL}.zip" "s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
           echo "BUNDLE_KEY=${BUNDLE_KEY}" >> $GITHUB_ENV
 
       - name: Create EB Application Version
         run: |
+          set -e
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+
+          UNIQUE_LABEL="${LABEL}-${TIMESTAMP}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          echo "UNIQUE_LABEL=${UNIQUE_LABEL}" >> $GITHUB_ENV
+          
+          if aws elasticbeanstalk describe-application-versions \
+              --application-name "${EB_APP_NAME}" \
+              --version-labels "${UNIQUE_LABEL}" \
+              --query 'ApplicationVersions[0].VersionLabel' \
+              --output text 2>/dev/null | grep -q "${UNIQUE_LABEL}"; then
+            echo "Warning: Version ${UNIQUE_LABEL} already exists, appending random suffix"
+            UNIQUE_LABEL="${UNIQUE_LABEL}-$(openssl rand -hex 4)"
+            echo "UNIQUE_LABEL=${UNIQUE_LABEL}" >> $GITHUB_ENV
+          fi
+          
           aws elasticbeanstalk create-application-version \
             --application-name "${EB_APP_NAME}" \
-            --version-label "${GITHUB_SHA}" \
-            --source-bundle S3Bucket="${EB_S3_BUCKET}",S3Key="${BUNDLE_KEY}"
+            --version-label "${UNIQUE_LABEL}" \
+            --source-bundle "S3Bucket=${EB_S3_BUCKET},S3Key=${BUNDLE_KEY}"
+          
+      - name: Update EB Environment
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name "${EB_ENV_NAME}" \
+            --version-label "${UNIQUE_LABEL}"
 
       - name: Update EB Environment
         run: |
           aws elasticbeanstalk update-environment \
             --environment-name "${EB_ENV_NAME}" \
-            --version-label "${GITHUB_SHA}"
+            --version-label "${LABEL}"
