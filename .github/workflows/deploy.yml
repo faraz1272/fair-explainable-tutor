@@ -92,36 +92,77 @@ jobs:
           echo "BUNDLE_KEY=${BUNDLE_KEY}" >> $GITHUB_ENV
           echo "Uploaded bundle to s3://${EB_S3_BUCKET}/${BUNDLE_KEY}"
       
-      - name: Create EB Application Version
+      - name: Debug - Check existing versions and problem version
+        run: |
+          echo "=== Checking for the problematic version ==="
+          aws elasticbeanstalk describe-application-versions \
+            --application-name "${EB_APP_NAME}" \
+            --version-labels "ec717307a6b352f1a3cd1c762e775d02884db77d" \
+            --query 'ApplicationVersions[0]' \
+            --output json || echo "Version not found"
+          
+          echo ""
+          echo "=== Last 5 application versions ==="
+          aws elasticbeanstalk describe-application-versions \
+            --application-name "${EB_APP_NAME}" \
+            --max-records 5 \
+            --query 'ApplicationVersions[*].[VersionLabel,DateCreated,SourceBundle.S3Key]' \
+            --output table
+          
+          echo ""
+          echo "=== Environment Variables Debug ==="
+          echo "EB_APP_NAME: ${EB_APP_NAME}"
+          echo "UNIQUE_LABEL: ${UNIQUE_LABEL}"
+          echo "BUNDLE_KEY: ${BUNDLE_KEY}"
+          echo "EB_S3_BUCKET: ${EB_S3_BUCKET}"
+      
+      - name: Delete problematic version if it exists
+        run: |
+          # Try to delete the specific problematic version
+          echo "Attempting to delete version: ec717307a6b352f1a3cd1c762e775d02884db77d"
+          aws elasticbeanstalk delete-application-version \
+            --application-name "${EB_APP_NAME}" \
+            --version-label "ec717307a6b352f1a3cd1c762e775d02884db77d" \
+            --delete-source-bundle 2>/dev/null || echo "Version doesn't exist or couldn't be deleted"
+          
+          # Also try to delete our intended version label just in case
+          echo "Attempting to delete version: ${UNIQUE_LABEL}"
+          aws elasticbeanstalk delete-application-version \
+            --application-name "${EB_APP_NAME}" \
+            --version-label "${UNIQUE_LABEL}" \
+            --delete-source-bundle 2>/dev/null || echo "Version doesn't exist or couldn't be deleted"
+          
+          # Wait a moment for deletion to process
+          sleep 3
+      
+      - name: Create EB Application Version (with explicit parameters)
         run: |
           set -e
           
-          # Debug output
-          echo "Creating EB application version:"
-          echo "  Application: ${EB_APP_NAME}"
-          echo "  Version Label: ${UNIQUE_LABEL}"
-          echo "  S3 Bucket: ${EB_S3_BUCKET}"
-          echo "  S3 Key: ${BUNDLE_KEY}"
+          echo "=== Creating EB application version ==="
+          echo "Application: ${EB_APP_NAME}"
+          echo "Version Label: ${UNIQUE_LABEL}"
+          echo "S3 Bucket: ${EB_S3_BUCKET}"
+          echo "S3 Key: ${BUNDLE_KEY}"
           
-          # Check if version already exists and delete if necessary
-          if aws elasticbeanstalk describe-application-versions \
-              --application-name "${EB_APP_NAME}" \
-              --version-labels "${UNIQUE_LABEL}" \
-              --query 'ApplicationVersions[0].VersionLabel' \
-              --output text 2>/dev/null | grep -q "${UNIQUE_LABEL}"; then
-            echo "Warning: Version ${UNIQUE_LABEL} already exists, deleting it first..."
-            aws elasticbeanstalk delete-application-version \
-              --application-name "${EB_APP_NAME}" \
-              --version-label "${UNIQUE_LABEL}" \
-              --delete-source-bundle || true
-            sleep 2
-          fi
+          # Method 1: Try with explicit JSON input
+          cat > create-version.json <<EOF
+          {
+            "ApplicationName": "${EB_APP_NAME}",
+            "VersionLabel": "${UNIQUE_LABEL}",
+            "SourceBundle": {
+              "S3Bucket": "${EB_S3_BUCKET}",
+              "S3Key": "${BUNDLE_KEY}"
+            }
+          }
+          EOF
           
-          # Create the application version
+          echo "=== JSON input file contents ==="
+          cat create-version.json
+          
+          # Try creating with CLI input JSON
           aws elasticbeanstalk create-application-version \
-            --application-name "${EB_APP_NAME}" \
-            --version-label "${UNIQUE_LABEL}" \
-            --source-bundle "S3Bucket=${EB_S3_BUCKET},S3Key=${BUNDLE_KEY}"
+            --cli-input-json file://create-version.json
           
           echo "Successfully created application version: ${UNIQUE_LABEL}"
       
@@ -138,10 +179,25 @@ jobs:
       - name: Wait for Environment Update
         run: |
           echo "Waiting for environment to be ready..."
-          aws elasticbeanstalk wait environment-updated \
-            --environment-name "${EB_ENV_NAME}" \
-            --version-label "${UNIQUE_LABEL}" \
-            || true
+          
+          # Wait for up to 10 minutes
+          COUNTER=0
+          while [ $COUNTER -lt 60 ]; do
+            STATUS=$(aws elasticbeanstalk describe-environments \
+              --environment-names "${EB_ENV_NAME}" \
+              --query 'Environments[0].Status' \
+              --output text)
+            
+            echo "Environment status: $STATUS"
+            
+            if [ "$STATUS" = "Ready" ]; then
+              echo "Environment is ready!"
+              break
+            fi
+            
+            sleep 10
+            COUNTER=$((COUNTER + 1))
+          done
           
           # Get final environment status
           aws elasticbeanstalk describe-environments \
