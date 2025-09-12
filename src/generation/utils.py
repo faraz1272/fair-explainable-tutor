@@ -1,4 +1,5 @@
 
+# src/generation/utils.py
 """Utilities for text generation.
 
 This module provides a unified helper to generate text either via:
@@ -9,8 +10,137 @@ It caches loaded Hugging Face models/tokenizers to avoid re-loading on
 subsequent calls and supports forcing CPU-only execution via a flag.
 """
 
+from functools import lru_cache
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from openai import OpenAI
+import os, json, time, hashlib
+import torch
+from dotenv import load_dotenv
+load_dotenv()  # picks up .env into os.environ
 
-# src/generation/utils.py
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+_PIPE_CACHE = {}
+_OPENAI_CACHE = {}
+
+def _device_for_hf(force_cpu: bool = True) -> tuple[str, torch.dtype | None]:
+    if force_cpu:
+        return "cpu", torch.float32
+    if torch.backends.mps.is_available():
+        return "mps", torch.float32
+    if torch.cuda.is_available():
+        return "cuda", None
+    return "cpu", torch.float32
+
+def _cache_key(messages, model_id):
+    key_src = model_id + "::" + json.dumps(messages, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(key_src.encode("utf-8")).hexdigest()
+
+def _load_pipe(model_id: str, force_cpu: bool = True):
+    device, dtype = _device_for_hf(force_cpu)
+    key = f"{model_id}::{device}::{str(dtype)}"
+    if key not in _PIPE_CACHE:
+        tok = AutoTokenizer.from_pretrained(model_id)
+        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype)
+        if device != "cpu":
+            model.to(device)
+        gen_pipe = pipeline("text-generation", model=model, tokenizer=tok)
+        _PIPE_CACHE[key] = (tok, gen_pipe)
+    return _PIPE_CACHE[key]
+
+def chat_generate(messages, backend="huggingface", model_id=None, temperature=0.2, max_new_tokens=320):
+    """
+    Unified chat generation for OpenAI and Hugging Face.
+    messages = [{"role": "system"/"user"/"assistant", "content": "..."}]
+    """
+
+    if backend == "openai":
+        # --- tiny in-memory cache (avoids re-paying for same request) ---
+        ck = _cache_key(messages, model_id or "")
+        if ck in _OPENAI_CACHE:
+            return _OPENAI_CACHE[ck]
+
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set.")
+
+        client = OpenAI(api_key=api_key)
+
+        # Gentle retry (network hiccups / transient 429)
+        last_err = None
+        for attempt in range(3):
+            try:
+                resp = client.chat.completions.create(
+                    model=model_id,
+                    messages=messages,
+                    temperature=float(temperature),
+                    max_tokens=int(max_new_tokens),
+                )
+                out = resp.choices[0].message.content.strip()
+                _OPENAI_CACHE[ck] = out
+                return out
+            except Exception as e:
+                last_err = e
+                # backoff: 0.5s, 1s
+                time.sleep(0.5 * (attempt + 1))
+
+        # Optional: fallback to HF if OpenAI fails completely
+        fallback = os.environ.get("FALLBACK_HF_MODEL", "")
+        if fallback:
+            tok, gen_pipe = _load_pipe(fallback, force_cpu=False)
+            prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            out = gen_pipe(
+                prompt,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=max(0.1, float(temperature)),
+                top_p=0.9,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.15,
+                eos_token_id=tok.eos_token_id,
+                return_full_text=True,
+            )[0]["generated_text"]
+            out = out[len(prompt):].lstrip() if out.startswith(prompt) else out
+            _OPENAI_CACHE[ck] = out
+            return out
+
+        raise last_err or RuntimeError("OpenAI generation failed.")
+
+    elif backend == "huggingface":
+        tok, gen_pipe = _load_pipe(model_id, force_cpu=False)
+        prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+        def _run(pipe):
+            out = pipe(
+                prompt,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=max(0.1, float(temperature)),
+                top_p=0.9,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.15,
+                eos_token_id=tok.eos_token_id,
+                return_full_text=True,
+            )[0]["generated_text"]
+            return out
+
+        try:
+            out = _run(gen_pipe)
+        except RuntimeError as e:
+            msg = str(e).lower()
+            if "probability tensor" in msg or "nan" in msg or "inf" in msg:
+                tok_cpu, gen_pipe_cpu = _load_pipe(model_id, force_cpu=True)
+                out = _run(gen_pipe_cpu)
+            else:
+                raise
+
+        return out[len(prompt):].lstrip() if out.startswith(prompt) else out
+
+    else:
+        raise ValueError(f"Unsupported backend: {backend}")
+    
+
+    # src/generation/utils.py
 # from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 # from openai import OpenAI
 # import torch, os
@@ -278,133 +408,3 @@ subsequent calls and supports forcing CPU-only execution via a flag.
 
 #     else:
 #         raise ValueError(f"Unsupported backend: {backend}")
-
-# src/generation/utils.py
-from functools import lru_cache
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-from openai import OpenAI
-import os, json, time, hashlib
-import torch
-from dotenv import load_dotenv
-load_dotenv()  # picks up .env into os.environ
-
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-
-_PIPE_CACHE = {}
-_OPENAI_CACHE = {}
-
-def _device_for_hf(force_cpu: bool = True) -> tuple[str, torch.dtype | None]:
-    if force_cpu:
-        return "cpu", torch.float32
-    if torch.backends.mps.is_available():
-        return "mps", torch.float32
-    if torch.cuda.is_available():
-        return "cuda", None
-    return "cpu", torch.float32
-
-def _cache_key(messages, model_id):
-    key_src = model_id + "::" + json.dumps(messages, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(key_src.encode("utf-8")).hexdigest()
-
-def _load_pipe(model_id: str, force_cpu: bool = True):
-    device, dtype = _device_for_hf(force_cpu)
-    key = f"{model_id}::{device}::{str(dtype)}"
-    if key not in _PIPE_CACHE:
-        tok = AutoTokenizer.from_pretrained(model_id)
-        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype)
-        if device != "cpu":
-            model.to(device)
-        gen_pipe = pipeline("text-generation", model=model, tokenizer=tok)
-        _PIPE_CACHE[key] = (tok, gen_pipe)
-    return _PIPE_CACHE[key]
-
-def chat_generate(messages, backend="huggingface", model_id=None, temperature=0.2, max_new_tokens=320):
-    """
-    Unified chat generation for OpenAI and Hugging Face.
-    messages = [{"role": "system"/"user"/"assistant", "content": "..."}]
-    """
-
-    if backend == "openai":
-        # --- tiny in-memory cache (avoids re-paying for same request) ---
-        ck = _cache_key(messages, model_id or "")
-        if ck in _OPENAI_CACHE:
-            return _OPENAI_CACHE[ck]
-
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set.")
-
-        client = OpenAI(api_key=api_key)
-
-        # Gentle retry (network hiccups / transient 429)
-        last_err = None
-        for attempt in range(3):
-            try:
-                resp = client.chat.completions.create(
-                    model=model_id,
-                    messages=messages,
-                    temperature=float(temperature),
-                    max_tokens=int(max_new_tokens),
-                )
-                out = resp.choices[0].message.content.strip()
-                _OPENAI_CACHE[ck] = out
-                return out
-            except Exception as e:
-                last_err = e
-                # backoff: 0.5s, 1s
-                time.sleep(0.5 * (attempt + 1))
-
-        # Optional: fallback to HF if OpenAI fails completely
-        fallback = os.environ.get("FALLBACK_HF_MODEL", "")
-        if fallback:
-            tok, gen_pipe = _load_pipe(fallback, force_cpu=False)
-            prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            out = gen_pipe(
-                prompt,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=max(0.1, float(temperature)),
-                top_p=0.9,
-                no_repeat_ngram_size=3,
-                repetition_penalty=1.15,
-                eos_token_id=tok.eos_token_id,
-                return_full_text=True,
-            )[0]["generated_text"]
-            out = out[len(prompt):].lstrip() if out.startswith(prompt) else out
-            _OPENAI_CACHE[ck] = out
-            return out
-
-        raise last_err or RuntimeError("OpenAI generation failed.")
-
-    elif backend == "huggingface":
-        tok, gen_pipe = _load_pipe(model_id, force_cpu=False)
-        prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-
-        def _run(pipe):
-            out = pipe(
-                prompt,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=max(0.1, float(temperature)),
-                top_p=0.9,
-                no_repeat_ngram_size=3,
-                repetition_penalty=1.15,
-                eos_token_id=tok.eos_token_id,
-                return_full_text=True,
-            )[0]["generated_text"]
-            return out
-
-        try:
-            out = _run(gen_pipe)
-        except RuntimeError as e:
-            msg = str(e).lower()
-            if "probability tensor" in msg or "nan" in msg or "inf" in msg:
-                tok_cpu, gen_pipe_cpu = _load_pipe(model_id, force_cpu=True)
-                out = _run(gen_pipe_cpu)
-            else:
-                raise
-
-        return out[len(prompt):].lstrip() if out.startswith(prompt) else out
-
-    else:
-        raise ValueError(f"Unsupported backend: {backend}")
