@@ -84,11 +84,6 @@ The app ships with a **Streamlit UI** for a transparent demo and is deployable v
 >
 > ![System Architecture](assets/system_architecture.png)
 >
-> **Placeholder diagrams** (if you prefer to host under `docs/`):
-> - `docs/system_architecture.png`
-> - `docs/pipeline_overview.png`
-> - `docs/provenance_flow.png`
-
 ---
 
 ## Pipeline: How It Works
