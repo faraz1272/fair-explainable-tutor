@@ -5,6 +5,9 @@
 [![AWS Elastic Beanstalk](https://img.shields.io/badge/AWS-Elastic%20Beanstalk-orange.svg)](https://aws.amazon.com/elasticbeanstalk/)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg)](https://www.docker.com/)
 
+  
+**Live Demo:** http://fair-explainable-tutor-env.eba-r3jqmdmw.eu-west-2.elasticbeanstalk.com/
+
 > A transparent, auditable pipeline that generates **short, grounded lessons** on a single objective—**cause and effect**—from classic short stories and surfaces **fairness** & **provenance** signals for governance.
 
 ---
