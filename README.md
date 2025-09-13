@@ -80,36 +80,6 @@ The app ships with a **Streamlit UI** for a transparent demo and is deployable v
 
 ## Architecture
 
-flowchart LR
-  U[User] --> UI[Streamlit UI]
-  UI --> GEN[Generation Orchestrator<br/>(src/generation/generate.py)]
-
-  GEN --> RET[Retrieval & Re-ranking<br/>(retrieval.py)]
-  RET --> CORP[(RDF/TTL Corpus<br/>data/rdf/corpus.ttl)]
-
-  GEN --> PAIRS[Pair Mining<br/>(heuristics → LLM fallback)]
-  PAIRS -->|if < 2 pairs| LLMF[LLM Fallback (context-locked)]
-  LLMF --> OAI[OpenAI API]
-  LLMF --> HF[HF local models]
-
-  GEN --> WRITE[Writer & Post-processor<br/>(writing.py)]
-  WRITE --> OUTTXT[[Lesson + Q1–Q3<br/>outputs/run-*.txt]]
-
-  GEN --> FAIR[Fairness Panel<br/>(fairness.py)]
-  FAIR --> DET[Detoxify (toxicity)]
-  FAIR --> READ[FK Grade (readability)]
-  FAIR --> LEX[Non-inclusive lexicon]
-  FAIR --> PRO[Pronoun balance]
-  FAIR --> OUTJSON[[Run JSON<br/>outputs/run-*.json]]
-
-  GEN --> PROV[Provenance Logger<br/>(prov.py)]
-  PROV --> TTL[(PROV-O TTL<br/>rdf/provenance.ttl)]
-
-  classDef box fill:#fff,stroke:#333,stroke-width:1px;
-  classDef store fill:#f7f7f7,stroke:#666,stroke-dasharray:3 3;
-  class U,UI,GEN,RET,PAIRS,LLMF,OAI,HF,WRITE,FAIR,DET,READ,LEX,PRO,PROV box;
-  class CORP,OUTTXT,OUTJSON,TTL store;
-
 > **Add/replace with your diagram** (a ready-made image is included in this repo):
 >
 > ![System Architecture](system_architecture.png)
