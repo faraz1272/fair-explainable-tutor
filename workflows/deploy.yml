@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 1) Build locally and smoke-test (Streamlit on 8080)
+  # Building locally and performing smoke-test (Streamlit on 8080)
   smoke-test:
     runs-on: ubuntu-latest
     steps:
@@ -51,7 +51,7 @@ jobs:
         if: always()
         run: docker stop app || true
 
-  # 2) Build & push image to ECR (linux/amd64)
+  # Building & pushing image to ECR (linux/amd64)
   build-and-push-ecr:
     needs: smoke-test
     if: github.ref == 'refs/heads/main'
@@ -60,8 +60,8 @@ jobs:
       id-token: write
       contents: read
     env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}           # e.g., eu-west-2
-      ECR_REPO: ${{ secrets.ECR_REPOSITORY }}         # e.g., fair-explainable-tutor
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      ECR_REPO: ${{ secrets.ECR_REPOSITORY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
 
-  # 3) Create a unique EB application version and deploy
+  # Creating a unique EB application version and deploying
   deploy-eb:
     needs: build-and-push-ecr
     if: github.ref == 'refs/heads/main'
@@ -99,11 +99,11 @@ jobs:
       id-token: write
       contents: read
     env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}           # e.g., eu-west-2
-      EB_APP: ${{ secrets.EB_APP_NAME }}              # your EB application name
-      EB_ENV: ${{ secrets.EB_ENV_NAME }}              # your EB environment name
-      EB_BUCKET: ${{ secrets.EB_S3_BUCKET }}          # your EB S3 bucket (elasticbeanstalk-<region>-<acct>)
-      ECR_REPO: ${{ secrets.ECR_REPOSITORY }}         # e.g., fair-explainable-tutor
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      EB_APP: ${{ secrets.EB_APP_NAME }}
+      EB_ENV: ${{ secrets.EB_ENV_NAME }}
+      EB_BUCKET: ${{ secrets.EB_S3_BUCKET }}
+      ECR_REPO: ${{ secrets.ECR_REPOSITORY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
