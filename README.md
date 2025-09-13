@@ -82,7 +82,7 @@ The app ships with a **Streamlit UI** for a transparent demo and is deployable v
 
 > **Add/replace with your diagram** (a ready-made image is included in this repo):
 >
-> ![System Architecture](system_architecture.png)
+> ![System Architecture](assets/system_architecture.png)
 >
 > **Placeholder diagrams** (if you prefer to host under `docs/`):
 > - `docs/system_architecture.png`
