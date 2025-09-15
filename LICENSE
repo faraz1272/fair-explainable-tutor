@@ -1,0 +1,82 @@
+Fair & Explainable Tutor — Licensing
+
+==============================
+1) Code License — MIT License
+==============================
+
+MIT License
+
+Copyright (c) 2025 Mohammad Faraz Ahmed
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+
+
+===============================================
+2) Documentation & Media License — CC BY-NC 4.0
+===============================================
+
+Except where otherwise noted, the documentation, diagrams, and media in this
+repository (e.g., files under `docs/`, screenshots such as `UI_*.jpeg`,
+and other images like `system_architecture.png`) are licensed under the
+Creative Commons Attribution-NonCommercial 4.0 International License
+(CC BY-NC 4.0).
+
+You are free to share and adapt these materials for non-commercial purposes,
+provided you give appropriate credit and indicate if changes were made.
+No warranties are provided.
+
+To view a copy of this license, visit:
+https://creativecommons.org/licenses/by-nc/4.0/
+
+
+
+==========================
+3) Third-Party Components
+==========================
+
+This project may include or interact with third-party models, libraries,
+and datasets (e.g., Detoxify, Hugging Face models, OpenAI API, Project
+Gutenberg texts). Such components are governed by their own licenses and
+terms. You must comply with those licenses in addition to this file.
+
+- Python packages are licensed under their respective terms (see `requirements.txt`).
+- Any model weights downloaded at runtime (e.g., Detoxify, HF models) are subject
+  to the original authors’ licenses.
+- Any source texts used to build the corpus (e.g., Project Gutenberg) retain their
+  original licensing and usage conditions.
+
+If you are redistributing artifacts that include third-party code, models, or
+texts, ensure you meet the requirements of those licenses (attribution, notices,
+usage limitations, etc.).
+
+
+
+=====================
+4) Attribution Guide
+=====================
+
+If you reuse the code:
+- Keep the MIT notice above in your distribution.
+- Recommended header (optional) for source files:
+  “Copyright (c) 2025 Mohammad Faraz Ahmed — Licensed under MIT.”
+
+If you reuse the docs/media:
+- Credit: “© 2025 Mohammad Faraz Ahmed — Documentation/figures licensed
+  under CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/).”
