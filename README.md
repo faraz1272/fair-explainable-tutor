@@ -337,10 +337,28 @@ This repo includes `.github/workflows/deploy.yml` that:
 
 ---
 
-## License
+## License & Academic Use
 
-This repository is released under the **MIT License**.  
-See `LICENSE` for details.
+This repository accompanies an academic dissertation and includes multiple kinds of artifacts with different licenses:
+
+- **Code** (everything under `src/`, `app.py`, Streamlit pages, and utility scripts):  
+  Licensed under the **MIT License** © 2025 Mohammad Faraz Ahmed. See `LICENSE` for the full text.
+
+- **Text, figures, and documentation** (e.g., dissertation excerpts, README content, diagrams/screenshots in `docs/` or root):  
+  Licensed under **CC BY-NC 4.0**. You may share and adapt with attribution for **non-commercial** purposes.
+
+- **Corpus, model weights, and third-party assets**:  
+  Not covered by the above licenses. Each retains its **original upstream license/terms**.  
+  Examples:
+  - Classic texts (e.g., Project Gutenberg): follow the source’s terms of use.
+  - Model weights and tokenizers (e.g., Detoxify, Hugging Face models): follow the model authors’ licenses.
+  - Fonts/icons/images: follow their respective licenses.
+
+### Warranty & Intended Use
+This is a **research prototype** provided “as is,” without warranty of any kind. It is not certified for classroom deployment without independent review of pedagogy, fairness, and privacy requirements.
+
+### Citation
+If you build upon this work in academic or research settings, please cite the dissertation or this repository. A `CITATION.cff` file can be added for convenience if needed.
 
 ---
 
