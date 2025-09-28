@@ -79,9 +79,6 @@ The app ships with a **Streamlit UI** for a transparent demo and is deployable v
 ---
 
 ## Architecture
-
-> **Add/replace with your diagram** (a ready-made image is included in this repo):
->
 > ![System Architecture](assets/system_architecture.png)
 >
 ---
