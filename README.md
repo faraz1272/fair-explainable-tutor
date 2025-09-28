@@ -287,9 +287,6 @@ This repo includes `.github/workflows/deploy.yml` that:
 - **Privacy:** no personal data is retained by default.
 - **Licensing of texts:** ensure the corpus respects the licenses of the underlying sources (e.g., Project Gutenberg terms).
 
-> **Placeholder diagram:**  
-> `docs/provenance_flow.png` (Activity → Used Entities → Generated Entities)
-
 ---
 
 ## Monitoring, Logs & Artifacts
