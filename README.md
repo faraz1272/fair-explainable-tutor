@@ -205,8 +205,8 @@ streamlit run app.py --server.port=8080 --server.address=0.0.0.0
   - `lom:general_title`, `lom:topic`, `lom:educational_difficulty` (3–9), `lom:text`, `lom:source`.
 - Script: `src/rdf/build_corpus.py` consumes a CSV → produces `data/rdf/corpus.ttl`.
 
-> **Placeholder diagram:**  
-> `docs/rdf_corpus_structure.png` (show minimal LOM vocab and example triple)
+> **Chunk example:**  
+> ![Chunk example](assets/chunk_image.png)
 
 ---
 
